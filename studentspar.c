@@ -264,6 +264,8 @@ int main(void) {
 
     // Preenchendo a tabela de estudantes com notas pseudo-aleatorias
     gerarTabela(R, C, A, N, estudantes);
+    
+    omp_set_num_threads(T);
 
     // ===================================================================================
     // Loop principal para o calculo dos dados estatisticos e medicao do tempo de execucao
