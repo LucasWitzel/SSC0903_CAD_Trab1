@@ -77,7 +77,9 @@ Dados calcularDados(const double *valores, double *aux_vetor, int lim) {
     double min_valor = valores[0];
     double max_valor = valores[0];
 
-    // Calculo das notas minimas e maximas
+    // =====================================================
+    // Paralelisacao dos calculos de notas minimas e maximas
+    // =====================================================
     #pragma omp parallel for reduction(+:soma, soma_quadrados) reduction(min:min_valor) reduction(max:max_valor)
     for (int i = 0; i < lim; i++) {
         atual_valor = valores[i];
@@ -275,13 +277,16 @@ int main(void) {
         // Iniciando medicao de tempo
         inicio_tempo = omp_get_wtime();
 
-        // Calculo das medias por aluno
+        // ===============================================
+        // Paralelisacao dos calculos das medias por aluno
+        // ===============================================
+
+        // (Metodo 1)
         double soma;
         #pragma omp parallel for collapse(3) private(soma)
         for (int r=0; r<R; r++) {
             for (int c=0; c<C; c++) {
                 for (int a=0; a<A; a++) {
-                    // double soma = 0;
                     soma = 0;
                     for (int n=0; n<N; n++) {
                         soma += estudantes[INDEX_4DIM(r, c, a, n)];
@@ -291,11 +296,33 @@ int main(void) {
             }
         }
 
-        // Calculo das estatisticas por cidade
+        /*
+        // (Metodo 2)
+        omp_set_nested(1);
+        #pragma omp parallel for collapse(3)
+        for (int r=0; r<R; r++) {
+            for (int c=0; c<C; c++) {
+                for (int a=0; a<A; a++) {
+                    double soma = 0;
+                    #pragma omp parallel for reduction(+:soma)
+                    for (int n=0; n<N; n++) {
+                        soma += estudantes[INDEX_4DIM(r,c,a,n)];
+                    }
+                    media[INDEX_3DIM(r,c,a)] = soma / N;
+                }
+            }
+        }
+        */
+        
+
+        // ======================================================
+        // Paralelisacao dos calculos das estatisticas por cidade
+        // ======================================================
+
+        // (Metodo 1)
         #pragma omp parallel
         {
             double aux_vetor_cidade[A];
-
             #pragma omp for collapse(2)
             for (int r = 0; r < R; r++) {
                 for (int c = 0; c < C; c++) {
@@ -303,7 +330,9 @@ int main(void) {
                 }
             }
         }
+
         /*
+        // (Metodo 2)
         #pragma omp parallel for collapse(2)
         for (int r=0; r<R; r++) {
             for (int c=0; c<C; c++) {
@@ -312,8 +341,12 @@ int main(void) {
             }
         }
         */
+
+        // ======================================================
+        // Paralelisacao dos calculos das estatisticas por regiao
+        // ======================================================
         
-        // Calculo das estatisticas por regiao
+        // (Metodo 1)
         #pragma omp parallel 
         {
             double aux_vetor_regiao[C * A];
@@ -325,6 +358,7 @@ int main(void) {
         }
         
         /*
+        (Metodo 2)
         #pragma omp parallel for
         for (int r = 0; r < R; r++) {
             double aux_vetor_regiao[C * A];
