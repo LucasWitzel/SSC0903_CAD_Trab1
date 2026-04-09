@@ -342,6 +342,26 @@ int main(void) {
         }
         */
 
+        /*
+        // (Metodo 3)
+        #pragma omp parallel
+        {
+            #pragma omp single
+            {
+                for (int r = 0; r < R; r++) {
+                    for (int c = 0; c < C; c++) {
+                        #pragma omp task firstprivate(r, c) 
+                        {
+                            double aux_local[A]; 
+                            cidade_Dados[INDEX_2DIM(r, c)] = calcularDados(&media[INDEX_3DIM(r, c, 0)], aux_local, A);
+                        }
+                    }
+                }
+            }
+        }
+        */
+        
+
         // ======================================================
         // Paralelisacao dos calculos das estatisticas por regiao
         // ======================================================
