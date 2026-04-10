@@ -249,7 +249,7 @@ int main(void) {
         return 1;
     }
 
-    /*
+    /* (Esquecer esse bloco por enquanto)
     double *aux_vetor = malloc((size_t) R * C * A * sizeof(*aux_vetor));
     if (aux_vetor == NULL) {
         fprintf(stderr, "Erro: memoria insuficiente para vetor auxiliar.\n");
@@ -282,6 +282,7 @@ int main(void) {
         // ===============================================
 
         // (Metodo 1)
+
         double soma;
         #pragma omp parallel for collapse(3) private(soma)
         for (int r=0; r<R; r++) {
@@ -298,6 +299,7 @@ int main(void) {
 
         /*
         // (Metodo 2)
+
         omp_set_nested(1);
         #pragma omp parallel for collapse(3)
         for (int r=0; r<R; r++) {
@@ -320,6 +322,7 @@ int main(void) {
         // ======================================================
 
         // (Metodo 1)
+
         #pragma omp parallel
         {
             double aux_vetor_cidade[A];
@@ -333,6 +336,7 @@ int main(void) {
 
         /*
         // (Metodo 2)
+
         #pragma omp parallel for collapse(2)
         for (int r=0; r<R; r++) {
             for (int c=0; c<C; c++) {
@@ -344,6 +348,7 @@ int main(void) {
 
         /*
         // (Metodo 3)
+
         #pragma omp parallel
         {
             #pragma omp single
@@ -367,6 +372,7 @@ int main(void) {
         // ======================================================
         
         // (Metodo 1)
+
         #pragma omp parallel 
         {
             double aux_vetor_regiao[C * A];
@@ -379,6 +385,7 @@ int main(void) {
         
         /*
         (Metodo 2)
+        
         #pragma omp parallel for
         for (int r = 0; r < R; r++) {
             double aux_vetor_regiao[C * A];
