@@ -59,7 +59,7 @@ void gerarTabela(int R, int C, int A, int N, double* estudantes) {
 /*
  * Funcao para comparar dois valores do tipo double
  */
-int compararDouble(const void *a, const void *b) {
+static inline int compararDouble(const void *a, const void *b) {
     double da = *(const double*) a;
     double db = *(const double*) b;
     if (da < db) return -1;
@@ -68,22 +68,77 @@ int compararDouble(const void *a, const void *b) {
 }
 
 /*
+ * Funcao para trocar o valor de duas variaveis double
+ */
+static inline void trocarDouble(double *a, double *b) {
+    double aux = *a;
+    *a = *b;
+    *b = aux;
+}
+
+/*
+ * Implementacao do algoritmo Quickselect para encontrar o valor de uma posicao especifica
+ * caso o vetor estivesse ordenado. Utilizada para otimizar o calculo da mediana: O(n)
+ */
+double quickselect(double *vetor, int tam, int indice) {
+    int i, j;
+    double pivo;
+    int esq = 0;
+    int dir = tam - 1;
+
+    while (esq < dir) {
+        pivo = vetor[esq + (dir - esq) / 2];
+        i = esq;
+        j = dir;
+
+        while (i <= j) {
+            while (vetor[i] < pivo) i++;
+            while (vetor[j] > pivo) j--;
+            if (i <= j) {
+                trocarDouble(&vetor[i], &vetor[j]);
+                i++;
+                j--;
+            }
+        }
+
+        if (indice <= j) {
+            dir = j;
+        } 
+        else if (indice >= i) {
+            esq = i;
+        }
+        else {
+            return vetor[indice];
+        }
+    }
+
+    return vetor[esq];
+}
+
+/*
  * Funcao para calcular os dados estatisticos: min, max, mediana, media e desvio padrao
 */
 Dados calcularDados(const double *valores, double *aux_vetor, int lim) {
     Dados d = {0};
-    double soma = 0.0, soma_quadrados = 0.0, valor_atual, variancia;
+    double soma = 0.0, soma_quadrados = 0.0;
+    double min_valor = valores[0];
+    double max_valor = valores[0];
+    double variancia, med1, med2;
+    double atual_valor;
 
     // Calculo das notas minimas e maximas
     for (int i = 0; i < lim; i++) {
-        valor_atual = valores[i];
-        if (i == 0 || valor_atual < d.min_nota) d.min_nota = valor_atual;
-        if (i == 0 || valor_atual > d.max_nota) d.max_nota = valor_atual;
+        atual_valor = valores[i];
+        if (atual_valor < min_valor) min_valor = atual_valor;
+        if (atual_valor > max_valor) max_valor = atual_valor;
         
-        soma += valor_atual;
-        soma_quadrados += (valor_atual * valor_atual);
-        aux_vetor[i] = valor_atual; 
+        soma += atual_valor;
+        soma_quadrados += (atual_valor * atual_valor);
+        aux_vetor[i] = atual_valor; 
     }
+
+    d.min_nota = min_valor;
+    d.max_nota = max_valor;
 
     // Calculo da media e do desvio padrao
     d.media = soma / lim;
@@ -91,11 +146,14 @@ Dados calcularDados(const double *valores, double *aux_vetor, int lim) {
     d.desvio_padrao = sqrt(variancia < 0 ? 0 : variancia);
 
     // Calculo da mediana
-    qsort(aux_vetor, (size_t)lim, sizeof(double), compararDouble);
-    if (lim % 2 == 0) 
-        d.mediana = (aux_vetor[lim / 2 - 1] + aux_vetor[lim / 2]) / 2.0;
-    else 
-        d.mediana = aux_vetor[lim / 2];
+    if (lim % 2 == 0) {
+        med1 = quickselect(aux_vetor, lim, lim / 2 - 1);
+        med2 = quickselect(aux_vetor, lim, lim / 2);
+        d.mediana = (med1 + med2) / 2.0;
+    }
+    else {
+        d.mediana = quickselect(aux_vetor, lim, lim / 2);
+    }
 
     return d;
 }
