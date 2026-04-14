@@ -14,11 +14,12 @@ typedef struct {
 static size_t students_idx(int C, int A, int N, int i, int j, int k, int l);
 static size_t media_idx(int C, int A, int i, int j, int k);
 void geraTabela(int R, int C, int A, int N, int *students);
-Stats calcula_stats(const double *v, int n);
+Stats calcula_stats(const double *v, int n, double *tmp);
 void format_pt(double valor, char *out, size_t out_size);
 void print_linha(const char *label, Stats s);
-static int cmp_double(const void *a, const void *b);
 void Avaliacao(float valor);
+static double quickselect_double(double *v, int n, int k);
+static void swap_double(double *a, double *b);
 
 int main(void) {
     int R, C, A, N, T, seed;
@@ -40,13 +41,19 @@ int main(void) {
     double *media = malloc(total_alunos * sizeof(*media));
     Stats (*cidade_stats)[C] = malloc((size_t)R * sizeof(*cidade_stats));
     Stats *regiao_stats = malloc((size_t)R * sizeof(*regiao_stats));
+    int max_stats_n = C * A > A ? C * A : A;
+    double *stats_workspace = malloc((size_t)T * (size_t)max_stats_n * sizeof(*stats_workspace));
+    double *brasil_workspace = malloc(total_alunos * sizeof(*brasil_workspace));
     
-    if (students == NULL || media == NULL || cidade_stats == NULL || regiao_stats == NULL) {
+    if (students == NULL || media == NULL || cidade_stats == NULL || regiao_stats == NULL ||
+        stats_workspace == NULL || brasil_workspace == NULL) {
         fprintf(stderr, "Erro: memoria insuficiente.\n");
         free(students);
         free(media);
         free(cidade_stats);
         free(regiao_stats);
+        free(stats_workspace);
+        free(brasil_workspace);
         return 1;
     }
 
@@ -61,37 +68,44 @@ int main(void) {
     omp_set_num_threads(T);
 
     double start_time = omp_get_wtime();
-    // FOR PARA REPETICOES
     for (int rep = 0; rep < NumRep; rep++) {
-        // CALCULO MEDIAS
-        #pragma omp parallel for collapse(3)
-        for (int i = 0; i < R; i++) {
-            for (int j = 0; j < C; j++) {
-                for (int k = 0; k < A; k++) {
-                    int soma = 0;
-                    for (int l = 0; l < N; l++) {
-                        soma += students[students_idx(C, A, N, i, j, k, l)];
+        #pragma omp parallel
+        {
+            int tid = omp_get_thread_num();
+            double *tmp = stats_workspace + (size_t)tid * (size_t)max_stats_n;
+
+            #pragma omp for collapse(3) schedule(static)
+            for (int i = 0; i < R; i++) {
+                for (int j = 0; j < C; j++) {
+                    for (int k = 0; k < A; k++) {
+                        int soma = 0;
+                        size_t base = students_idx(C, A, N, i, j, k, 0);
+                        for (int l = 0; l < N; l++) {
+                            soma += students[base + (size_t)l];
+                        }
+                        media[media_idx(C, A, i, j, k)] = (double)soma / N;
                     }
-                    media[media_idx(C, A, i, j, k)] = (double)soma / N;
                 }
             }
-        }
 
-        #pragma omp parallel for collapse(2)
-        for (int i = 0; i < R; i++) {
-            for (int j = 0; j < C; j++) {
-                cidade_stats[i][j] = calcula_stats(&media[media_idx(C, A, i, j, 0)], A);
+            #pragma omp for collapse(2) schedule(static)
+            for (int i = 0; i < R; i++) {
+                for (int j = 0; j < C; j++) {
+                    cidade_stats[i][j] = calcula_stats(&media[media_idx(C, A, i, j, 0)], A, tmp);
+                }
+            }
+
+            #pragma omp for schedule(static)
+            for (int i = 0; i < R; i++) {
+                regiao_stats[i] = calcula_stats(&media[media_idx(C, A, i, 0, 0)], C * A, tmp);
+            }
+
+            #pragma omp single
+            {
+                brasil_stats = calcula_stats(media, (int)total_alunos, brasil_workspace);
             }
         }
 
-        #pragma omp parallel for
-        for (int i = 0; i < R; i++) {
-            regiao_stats[i] = calcula_stats(&media[media_idx(C, A, i, 0, 0)], C * A);
-        }
-
-        brasil_stats = calcula_stats(media, (int)total_alunos);
-
-        // MELHOR REGIAO E MELHOR CIDADE
         best_r = 0;
         best_city_r = 0;
         best_city_c = 0;
@@ -159,6 +173,8 @@ int main(void) {
     free(media);
     free(cidade_stats);
     free(regiao_stats);
+    free(stats_workspace);
+    free(brasil_workspace);
     return 0;
 }
 
@@ -182,15 +198,7 @@ void geraTabela(int R, int C, int A, int N, int *students) {
     }
 }
 
-static int cmp_double(const void *a, const void *b) {
-    double da = *(const double *)a;
-    double db = *(const double *)b;
-    if (da < db) return -1;
-    if (da > db) return 1;
-    return 0;
-}
-
-Stats calcula_stats(const double *v, int n) {
+Stats calcula_stats(const double *v, int n, double *tmp) {
     Stats s = {0.0, 0.0, 0.0, 0.0, 0.0};
     if (n <= 0) {
         return s;
@@ -202,8 +210,10 @@ Stats calcula_stats(const double *v, int n) {
     for (int i = 0; i < n; i++) {
         if (v[i] < s.min_nota) s.min_nota = v[i];
         if (v[i] > s.max_nota) s.max_nota = v[i];
+        tmp[i] = v[i];
         soma += v[i];
     }
+
     s.media = soma / n;
 
     double soma_quadrados = 0.0;
@@ -213,23 +223,56 @@ Stats calcula_stats(const double *v, int n) {
     }
     s.dsv_pdr = sqrt(soma_quadrados / n);
 
-    double *tmp = malloc((size_t)n * sizeof(*tmp));
-    if (tmp == NULL) {
-        fprintf(stderr, "Erro: memoria insuficiente para calcular mediana.\n");
-        exit(EXIT_FAILURE);
-    }
-    for (int i = 0; i < n; i++) {
-        tmp[i] = v[i];
-    }
-    qsort(tmp, (size_t)n, sizeof(*tmp), cmp_double);
     if (n % 2 == 0) {
-        s.mediana = (tmp[n / 2 - 1] + tmp[n / 2]) / 2.0;
+        double med1 = quickselect_double(tmp, n, n / 2 - 1);
+        double med2 = quickselect_double(tmp, n, n / 2);
+        s.mediana = (med1 + med2) / 2.0;
     } else {
-        s.mediana = tmp[n / 2];
+        s.mediana = quickselect_double(tmp, n, n / 2);
     }
-    free(tmp);
 
     return s;
+}
+
+static double quickselect_double(double *v, int n, int k) {
+    int left = 0;
+    int right = n - 1;
+
+    while (left < right) {
+        double pivot = v[left + (right - left) / 2];
+        int i = left;
+        int j = right;
+
+        while (i <= j) {
+            while (v[i] < pivot) {
+                i++;
+            }
+            while (v[j] > pivot) {
+                j--;
+            }
+            if (i <= j) {
+                swap_double(&v[i], &v[j]);
+                i++;
+                j--;
+            }
+        }
+
+        if (k <= j) {
+            right = j;
+        } else if (k >= i) {
+            left = i;
+        } else {
+            return v[k];
+        }
+    }
+
+    return v[left];
+}
+
+static void swap_double(double *a, double *b) {
+    double tmp = *a;
+    *a = *b;
+    *b = tmp;
 }
 
 void format_pt(double valor, char *out, size_t out_size) {
