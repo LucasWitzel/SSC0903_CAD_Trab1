@@ -1,6 +1,6 @@
 # Compilation settings
 CC = gcc
-CFLAGS = -std=c11 -Wall -Wextra -O2 -fopenmp
+CFLAGS = -std=c11 -Wall -Wextra -O3 -fopenmp
 LDLIBS = -lm
 
 # Executable files

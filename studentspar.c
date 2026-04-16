@@ -241,13 +241,20 @@ void printTabelas(int R, int C, Dados *cidade_Dados, Dados *regiao_Dados, Dados 
 /*
  * Funcao principal
  */
-int main(void) {
+int main(int argc, char *argv[]) {
+    (void) argc;
+    if (argv[1] == NULL) {
+        fprintf(stderr, "Erro: arquivo de entrada nao indicado.\n");
+        return 1;
+    }
+    
     // ===================================================
     // Lendo os parametros de entrada do arquivo input.txt
     // ===================================================
     int R, C, A, N, T, seed;
+    char *arquivo_entrada = argv[1];
 
-    FILE* fp = fopen("input.txt", "r");
+    FILE* fp = fopen(arquivo_entrada, "r");
     if (fp == NULL) {
         fprintf(stderr, "Erro: nao foi possivel abrir o arquivo de entrada.\n");
         return 1;
