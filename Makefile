@@ -27,10 +27,10 @@ $(TARGETS): %: %.o
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run_seq: $(EXE_SEQ)
-	./$(EXE_SEQ)
+	./$(EXE_SEQ) $(file)
 
 run_par: $(EXE_PAR)
-	./$(EXE_PAR)
+	./$(EXE_PAR) $(file)
 
 clean:
 	rm -f $(TARGETS) *.o
