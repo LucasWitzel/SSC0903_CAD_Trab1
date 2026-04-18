@@ -20,7 +20,7 @@ Codigo Paralelo: studentspar.c
 #include <omp.h>
 
 // Numero de repeticoes para o calculo do tempo medio
-#define NUM_REP 100
+#define NUM_REP 10
 
 // Optamos por tratar os arrays contendo os dados dos estudantes como estruturas 
 // unidimensionais para melhor desempenho. Por isso, foram criadas macros que facilitam 
@@ -121,37 +121,38 @@ double quickselect(double *vetor, int tam, int indice) {
 Dados calcularDados(const double *valores, double *aux_vetor, int lim) {
     Dados d = {0};
     double soma = 0.0, soma_quadrados = 0.0;
+    double atual_valor;
     double min_valor = valores[0];
     double max_valor = valores[0];
-    double variancia, med1, med2;
-    double atual_valor;
 
     // =====================================================
     // Paralelisacao dos calculos de notas minimas e maximas
     // =====================================================
-    #pragma omp parallel for reduction(+:soma, soma_quadrados) private(atual_valor) reduction(min:min_valor) reduction(max:max_valor)
+    #pragma omp simd reduction(+:soma, soma_quadrados) private(atual_valor) reduction(min:min_valor) reduction(max:max_valor)
     for (int i = 0; i < lim; i++) {
         atual_valor = valores[i];
-        if (atual_valor < min_valor) min_valor = atual_valor;
-        if (atual_valor > max_valor) max_valor = atual_valor;
+
+        // Ternários sao usados para evitar desvios condicionais complexos dentro do loop SIMD
+        min_valor = (atual_valor < min_valor) ? atual_valor : min_valor;
+        max_valor = (atual_valor > max_valor) ? atual_valor : max_valor;
         
         soma += atual_valor;
         soma_quadrados += (atual_valor * atual_valor);
         aux_vetor[i] = atual_valor; 
     }
 
+    // Calculo da media e do desvio padrao
     d.min_nota = min_valor;
     d.max_nota = max_valor;
-
-    // Calculo da media e do desvio padrao
     d.media = soma / lim;
-    variancia = (soma_quadrados / lim) - (d.media * d.media);
+
+    double variancia = (soma_quadrados / lim) - (d.media * d.media);
     d.desvio_padrao = sqrt(variancia < 0 ? 0 : variancia);
 
     // Calculo da mediana
     if (lim % 2 == 0) {
-        med1 = quickselect(aux_vetor, lim, lim / 2 - 1);
-        med2 = quickselect(aux_vetor, lim, lim / 2);
+        double med1 = quickselect(aux_vetor, lim, lim / 2 - 1);
+        double med2 = quickselect(aux_vetor, lim, lim / 2);
         d.mediana = (med1 + med2) / 2.0;
     }
     else {
@@ -172,9 +173,23 @@ void formatarPT(double valor_original, char *saida, size_t tam_saida) {
 }
 
 /*
+ * Funcao para escrever resultados dos tempos num arquivo texto
+ */
+int escreveArquivo(double tempo) {
+    FILE *arq = fopen("saidas/tempospar.txt", "a");
+    if (arq == NULL) {
+        fprintf(stderr, "Erro: nao foi possivel abrir o arquivo de entrada.\n");
+        return 1;
+    }
+    fprintf(arq, "%.10f\n", tempo / NUM_REP);
+    fclose(arq);
+    return 0;
+}
+
+/*
  * Funcao para imprimir uma linha da tabela com os dados estatisticos
  */
-void printLinha(const char *texto, Dados d) {
+ void printLinha(const char *texto, Dados d) {
     char min_pt[32], max_pt[32], mediana_pt[32], media_pt[32], desvio_pt[32];
     formatarPT(d.min_nota, min_pt, sizeof(min_pt));
     formatarPT(d.max_nota, max_pt, sizeof(max_pt));
@@ -275,9 +290,9 @@ int main(int argc, char *argv[]) {
 
     omp_set_num_threads(T);
 
-    // ======================================================================
-    // Alocacao de memoria para as tabelas de dados e declaracao de variaveis
-    // ======================================================================
+    // =====================================================
+    // Alocacao de memoria dinamica para as tabelas de dados
+    // =====================================================
     Dados brasil_Dados;
 
     Dados *cidade_Dados = malloc((size_t) R * C * sizeof(*cidade_Dados));
@@ -320,6 +335,32 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    double **aux_vetor_cidade_threads = malloc((size_t) T * sizeof(*aux_vetor_cidade_threads));
+    if (aux_vetor_cidade_threads == NULL) {
+        fprintf(stderr, "Erro: memoria insuficiente para criar o vetor auxiliar de cidade para as threads.\n");
+        free(cidade_Dados);
+        free(regiao_Dados);
+        free(estudantes);
+        free(media);
+        free(aux_vetor_brasil);
+        return 1;
+    }
+
+    for (int i = 0; i < T; i++) {
+        aux_vetor_cidade_threads[i] = malloc((size_t) A * sizeof(**aux_vetor_cidade_threads));
+        if (aux_vetor_cidade_threads[i] == NULL) {
+            fprintf(stderr, "Erro: memoria insuficiente para criar o vetor de cidade para uma thread especifica.\n");
+            free(cidade_Dados);
+            free(regiao_Dados);
+            free(estudantes);
+            free(media);
+            free(aux_vetor_brasil);
+            for (int j = 0; j < i; j++) free(aux_vetor_cidade_threads[j]);
+            free(aux_vetor_cidade_threads);
+            return 1;
+        }
+    }
+
     double **aux_vetor_regiao_threads = malloc((size_t) T * sizeof(*aux_vetor_regiao_threads));
     if (aux_vetor_regiao_threads == NULL) {
         fprintf(stderr, "Erro: memoria insuficiente para criar o vetor auxiliar de regiao para as threads.\n");
@@ -328,6 +369,8 @@ int main(int argc, char *argv[]) {
         free(estudantes);
         free(media);
         free(aux_vetor_brasil);
+        for (int i = 0; i < T; i++) free(aux_vetor_cidade_threads[i]);
+        free(aux_vetor_cidade_threads);
         return 1;
     }
 
@@ -340,34 +383,32 @@ int main(int argc, char *argv[]) {
             free(estudantes);
             free(media);
             free(aux_vetor_brasil);
-            for (int j = 0; j < i; j++) free(aux_vetor_regiao_threads[j]);
+            for (int j = 0; j < T; j++) free(aux_vetor_cidade_threads[j]);
+            free(aux_vetor_cidade_threads);
+            for (int k = 0; k < i; k++) free(aux_vetor_regiao_threads[k]);
             free(aux_vetor_regiao_threads);
             return 1;
         }
     }
 
-    double inicio_tempo, final_tempo, tempo_total = 0.0;
-    int melhor_regiao, melhor_cidade, melhor_cidade_regiao;
-
     // Preenchendo a tabela de estudantes com notas pseudo-aleatorias
     gerarTabela(R, C, A, N, estudantes);
 
+    double tempo_total = 0.0;
+    int melhor_regiao, melhor_cidade, melhor_cidade_regiao;
+    
     // ===================================================================================
     // Loop principal para o calculo dos dados estatisticos e medicao do tempo de execucao
     // ===================================================================================
     for (int rep = 0; rep < NUM_REP; rep++) {
-
         // Iniciando medicao de tempo
-        inicio_tempo = omp_get_wtime();
+        double inicio_tempo = omp_get_wtime();
 
         // ===============================================
         // Paralelisacao dos calculos das medias por aluno
         // ===============================================
-
-        // (Metodo 1)
-
         double soma;
-        #pragma omp parallel for collapse(3) private(soma)
+        #pragma omp parallel for simd collapse(3) private(soma)
         for (int r=0; r<R; r++) {
             for (int c=0; c<C; c++) {
                 for (int a=0; a<A; a++) {
@@ -379,143 +420,113 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-
-        /*
-        // (Metodo 2)
-
-        omp_set_nested(1);
-        #pragma omp parallel for collapse(3)
-        for (int r=0; r<R; r++) {
-            for (int c=0; c<C; c++) {
-                for (int a=0; a<A; a++) {
-                    double soma = 0;
-                    #pragma omp parallel for reduction(+:soma)
-                    for (int n=0; n<N; n++) {
-                        soma += estudantes[INDEX_4DIM(r,c,a,n)];
-                    }
-                    media[INDEX_3DIM(r,c,a)] = soma / N;
-                }
-            }
-        }
-        */
         
-
-        // ======================================================
-        // Paralelisacao dos calculos das estatisticas por cidade
-        // ======================================================
-
-        // (Metodo 1)
-
+        // ===================================================================
+        // Paralelisacao dos calculos das estatisticas por cidade e por regiao
+        // ===================================================================
         #pragma omp parallel
         {
-            double aux_vetor_cidade[A];
-            #pragma omp for collapse(2)
+            int id_thread = omp_get_thread_num();
+            double *aux_cidade = aux_vetor_cidade_threads[id_thread];
+            double *aux_regiao = aux_vetor_regiao_threads[id_thread];
+            
+            #pragma omp for simd collapse(2) schedule(dynamic) nowait
             for (int r = 0; r < R; r++) {
                 for (int c = 0; c < C; c++) {
-                    cidade_Dados[INDEX_2DIM(r, c)] = calcularDados(&media[INDEX_3DIM(r, c, 0)], aux_vetor_cidade, A);
+                    cidade_Dados[INDEX_2DIM(r, c)] = calcularDados(&media[INDEX_3DIM(r, c, 0)], aux_cidade, A);
+                }
+            }
+
+            #pragma omp for simd schedule(dynamic)
+            for (int r = 0; r < R; r++) {
+                regiao_Dados[INDEX_1DIM(r)] = calcularDados(&media[(size_t) r * (C * A)], aux_regiao, C * A);
+            }
+        }
+
+        // ========================================================================================
+        // Paralelisacao dos calculos das estatisticas do Brasil e definindo Melhor Regiao e Cidade
+        // ========================================================================================
+        #pragma omp parallel
+        {
+            #pragma omp sections
+            {
+                #pragma omp section
+                {
+                    brasil_Dados = calcularDados(media, aux_vetor_brasil, R * C * A);
+                }
+
+                #pragma omp section
+                {
+                    melhor_regiao = 0;
+                    melhor_cidade = 0;
+                    melhor_cidade_regiao = 0;
+
+                    for (int r=0; r<R; r++) {
+                        if (regiao_Dados[r].media > regiao_Dados[melhor_regiao].media) {
+                            melhor_regiao = r;
+                        }
+                        for (int c=0; c<C; c++) {
+                            if (cidade_Dados[INDEX_2DIM(r, c)].media > cidade_Dados[INDEX_2DIM(melhor_cidade_regiao, melhor_cidade)].media) {
+                                melhor_cidade_regiao = r;
+                                melhor_cidade = c;
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        /*
-        // (Metodo 2)
-
-        #pragma omp parallel for collapse(2)
-        for (int r=0; r<R; r++) {
-            for (int c=0; c<C; c++) {
-                double aux_vector_cidade[A];
-                cidade_Dados[INDEX_2DIM(r, c)] = calcularDados(&media[INDEX_3DIM(r, c, 0)], aux_vector_cidade, A); 
-            }
-        }
-        */
-
-        /*
-        // (Metodo 3)
-
+        // ================
+        // METODO COM TASKS (por enquanto ignorar, vai ser uma analise posterior so pra comparar SECTION X TASK)
+        // ================
+        /*        
         #pragma omp parallel
         {
             #pragma omp single
             {
-                for (int r = 0; r < R; r++) {
-                    for (int c = 0; c < C; c++) {
-                        #pragma omp task firstprivate(r, c) 
-                        {
-                            double aux_local[A]; 
-                            cidade_Dados[INDEX_2DIM(r, c)] = calcularDados(&media[INDEX_3DIM(r, c, 0)], aux_local, A);
+                #pragma omp task
+                {
+                    brasil_Dados = calcularDados(media, aux_vetor_brasil, R * C * A);
+                }
+
+                #pragma omp task
+                {
+                    melhor_regiao = 0; melhor_cidade = 0; melhor_cidade_regiao = 0;
+
+                    for (int r=0; r<R; r++) {
+                        if (regiao_Dados[r].media > regiao_Dados[melhor_regiao].media) {
+                            melhor_regiao = r;
+                        }
+                        for (int c=0; c<C; c++) {
+                            if (cidade_Dados[INDEX_2DIM(r, c)].media > cidade_Dados[INDEX_2DIM(melhor_cidade_regiao, melhor_cidade)].media) {
+                                melhor_cidade_regiao = r;
+                                melhor_cidade = c;
+                            }
                         }
                     }
                 }
             }
         }
         */
-        
 
-        // ======================================================
-        // Paralelisacao dos calculos das estatisticas por regiao
-        // ======================================================
-        
-        // (Metodo 1)
-
-        #pragma omp parallel 
-        {
-            int id_thread = omp_get_thread_num();
-            double *aux_regiao = aux_vetor_regiao_threads[id_thread];
-
-            #pragma omp for
-            for (int r = 0; r < R; r++) {
-                regiao_Dados[INDEX_1DIM(r)] = calcularDados(&media[(size_t) r * (C * A)], aux_regiao, C * A);
-            }
-        }
-        
-        /*
-        (Metodo 2)
-        
-        #pragma omp parallel for
-        for (int r = 0; r < R; r++) {
-            double aux_vetor_regiao[C * A];
-            regiao_Dados[INDEX_1DIM(r)] = calcularDados(&media[(size_t) r * (C * A)], aux_vetor, C * A);
-        }
-        */
-
-        // Calculo das estatisticas do Brasil
-        brasil_Dados = calcularDados(media, aux_vetor_brasil, R * C * A);
-
-        melhor_regiao = 0;
-        melhor_cidade_regiao = 0;
-        melhor_cidade = 0;
-
-        // Definicao da Melhor Regiao
-        for (int r=0; r<R; r++) {
-            if (regiao_Dados[r].media > regiao_Dados[melhor_regiao].media) {
-                melhor_regiao = r;
-            }
-        }
-
-        // Definicao da Melhor Cidade dentro da Melhor Regiao
-        for (int r=0; r<R; r++) {
-            for (int c=0; c<C; c++) {
-                if (cidade_Dados[INDEX_2DIM(r, c)].media > cidade_Dados[INDEX_2DIM(melhor_cidade_regiao, melhor_cidade)].media) {
-                    melhor_cidade_regiao = r;
-                    melhor_cidade = c;
-                }
-            }
-        }
-        
         // Finalizando medicao de tempo e calculando tempo total
-        final_tempo = omp_get_wtime();
+        double final_tempo = omp_get_wtime();
         tempo_total += final_tempo - inicio_tempo;
     }
 
     // ===============================================================================
     // Impressao dos resultados e liberacao da memoria alocada. Finalizacao do codigo.
     // ===============================================================================
-    printTabelas(R, C, cidade_Dados, regiao_Dados, brasil_Dados, melhor_regiao, melhor_cidade_regiao, melhor_cidade, tempo_total);
-    
+    //printTabelas(R, C, cidade_Dados, regiao_Dados, brasil_Dados, melhor_regiao, melhor_cidade_regiao, melhor_cidade, tempo_total);
+    escreveArquivo(tempo_total);
+
     free(cidade_Dados);
     free(regiao_Dados);
     free(estudantes);
     free(media);
     free(aux_vetor_brasil);
+    for (int i = 0; i < T; i++) free(aux_vetor_cidade_threads[i]);
+    free(aux_vetor_cidade_threads);
     for (int i = 0; i < T; i++) free(aux_vetor_regiao_threads[i]);
     free(aux_vetor_regiao_threads);
 

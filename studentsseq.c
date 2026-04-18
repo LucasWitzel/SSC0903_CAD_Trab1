@@ -20,7 +20,7 @@ Codigo Sequencial: studentsseq.c
 #include <omp.h>
 
 // Numero de repeticoes para o calculo do tempo medio
-#define NUM_REP 100
+#define NUM_REP 10
 
 // Optamos por tratar os arrays contendo os dados dos estudantes como estruturas 
 // unidimensionais para melhor desempenho. Por isso, foram criadas macros que facilitam 
@@ -123,12 +123,10 @@ Dados calcularDados(const double *valores, double *aux_vetor, int lim) {
     double soma = 0.0, soma_quadrados = 0.0;
     double min_valor = valores[0];
     double max_valor = valores[0];
-    double variancia, med1, med2;
-    double atual_valor;
 
     // Calculo das notas minimas e maximas
     for (int i = 0; i < lim; i++) {
-        atual_valor = valores[i];
+        double atual_valor = valores[i];
         if (atual_valor < min_valor) min_valor = atual_valor;
         if (atual_valor > max_valor) max_valor = atual_valor;
         
@@ -137,18 +135,18 @@ Dados calcularDados(const double *valores, double *aux_vetor, int lim) {
         aux_vetor[i] = atual_valor; 
     }
 
+    // Calculo da media e do desvio padrao
     d.min_nota = min_valor;
     d.max_nota = max_valor;
-
-    // Calculo da media e do desvio padrao
     d.media = soma / lim;
-    variancia = (soma_quadrados / lim) - (d.media * d.media);
+
+    double variancia = (soma_quadrados / lim) - (d.media * d.media);
     d.desvio_padrao = sqrt(variancia < 0 ? 0 : variancia);
 
     // Calculo da mediana
     if (lim % 2 == 0) {
-        med1 = quickselect(aux_vetor, lim, lim / 2 - 1);
-        med2 = quickselect(aux_vetor, lim, lim / 2);
+        double med1 = quickselect(aux_vetor, lim, lim / 2 - 1);
+        double med2 = quickselect(aux_vetor, lim, lim / 2);
         d.mediana = (med1 + med2) / 2.0;
     }
     else {
@@ -166,6 +164,20 @@ void formatarPT(double valor_original, char *saida, size_t tam_saida) {
     for (char *c = saida; *c != '\0'; c++) {
         if (*c == '.') *c = ',';
     }
+}
+
+/*
+ * Funcao para escrever resultados dos tempos num arquivo texto
+ */
+int escreveArquivo(double tempo) {
+    FILE *arq = fopen("saidas/temposseq.txt", "a");
+    if (arq == NULL) {
+        fprintf(stderr, "Erro: nao foi possivel abrir o arquivo de entrada.\n");
+        return 1;
+    }
+    fprintf(arq, "%.10f\n", tempo / NUM_REP);
+    fclose(arq);
+    return 0;
 }
 
 /*
@@ -315,19 +327,18 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    double inicio_tempo, final_tempo, tempo_total = 0.0;
-    int melhor_regiao, melhor_cidade, melhor_cidade_regiao;
-
     // Preenchendo a tabela de estudantes com notas pseudo-aleatorias
     gerarTabela(R, C, A, N, estudantes);
+
+    double tempo_total = 0.0;
+    int melhor_regiao, melhor_cidade, melhor_cidade_regiao;
 
     // ===================================================================================
     // Loop principal para o calculo dos dados estatisticos e medicao do tempo de execucao
     // ===================================================================================
     for (int rep = 0; rep < NUM_REP; rep++) {
-
         // Iniciando medicao de tempo
-        inicio_tempo = omp_get_wtime();
+        double inicio_tempo = omp_get_wtime();
 
         // Calculo das medias por aluno
         for (int r=0; r<R; r++) {
@@ -358,18 +369,14 @@ int main(int argc, char *argv[]) {
         brasil_Dados = calcularDados(media, aux_vetor, R * C * A);
 
         melhor_regiao = 0;
-        melhor_cidade_regiao = 0;
         melhor_cidade = 0;
+        melhor_cidade_regiao = 0;
 
-        // Definicao da Melhor Regiao
+        // Definicao das melhores Cidade e Regiao
         for (int r=0; r<R; r++) {
             if (regiao_Dados[r].media > regiao_Dados[melhor_regiao].media) {
                 melhor_regiao = r;
             }
-        }
-
-        // Definicao da Melhor Cidade dentro da Melhor Regiao
-        for (int r=0; r<R; r++) {
             for (int c=0; c<C; c++) {
                 if (cidade_Dados[INDEX_2DIM(r, c)].media > cidade_Dados[INDEX_2DIM(melhor_cidade_regiao, melhor_cidade)].media) {
                     melhor_cidade_regiao = r;
@@ -379,14 +386,15 @@ int main(int argc, char *argv[]) {
         }
         
         // Finalizando medicao de tempo e calculando tempo total
-        final_tempo = omp_get_wtime();
+        double final_tempo = omp_get_wtime();
         tempo_total += final_tempo - inicio_tempo;
     }
 
     // ===============================================================================
     // Impressao dos resultados e liberacao da memoria alocada. Finalizacao do codigo.
     // ===============================================================================
-    printTabelas(R, C, cidade_Dados, regiao_Dados, brasil_Dados, melhor_regiao, melhor_cidade_regiao, melhor_cidade, tempo_total);
+    //printTabelas(R, C, cidade_Dados, regiao_Dados, brasil_Dados, melhor_regiao, melhor_cidade_regiao, melhor_cidade, tempo_total);
+    escreveArquivo(tempo_total);
     
     free(cidade_Dados);
     free(regiao_Dados);
