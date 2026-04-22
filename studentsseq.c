@@ -20,7 +20,7 @@ Codigo Sequencial: studentsseq.c
 #include <omp.h>
 
 // Numero de repeticoes para o calculo do tempo medio
-#define NUM_REP 30
+#define NUM_REP 33
 
 // Optamos por tratar os arrays contendo os dados dos estudantes como estruturas 
 // unidimensionais para melhor desempenho. Por isso, foram criadas macros que facilitam 
@@ -169,8 +169,8 @@ void formatarPT(double valor_original, char *saida, size_t tam_saida) {
 /*
  * Funcao para escrever resultados dos tempos num arquivo texto
  */
-int escreveArquivo(double tempo) {
-    FILE *arq = fopen("saidas/temposseq.txt", "a");
+int escreveTempoTotal(double tempo) {
+    FILE *arq = fopen("saidas/temposseq_TASK_SEED.txt", "a");
     if (arq == NULL) {
         fprintf(stderr, "Erro: nao foi possivel abrir o arquivo de entrada.\n");
         return 1;
@@ -179,6 +179,26 @@ int escreveArquivo(double tempo) {
     fclose(arq);
     return 0;
 }
+
+/*
+ * Funcao para escrever resultados dos tempos parciais num arquivo texto
+ */
+int escreveTempoParcial(double *tempos, int tam) {
+    char nome_arquivo[25]; 
+    sprintf(nome_arquivo, "parciais/tempos_parciais%d.txt", tam);
+
+    FILE* arq = fopen(nome_arquivo, "a");
+    if (arq == NULL) {
+        fprintf(stderr, "Erro: nao foi possivel abrir o arquivo de tempos parciais.\n");
+        return 1;
+    }
+    for (int i = 0; i < NUM_REP; i++) {
+        fprintf(arq, "%.10f\n", tempos[i]);
+    }
+    fclose(arq);
+    return 0;
+}
+
 
 /*
  * Funcao para imprimir uma linha da tabela com os dados estatisticos
@@ -330,7 +350,7 @@ int main(int argc, char *argv[]) {
     // Preenchendo a tabela de estudantes com notas pseudo-aleatorias
     gerarTabela(R, C, A, N, estudantes);
 
-    double tempo_total = 0.0;
+    double tempos_execucao[NUM_REP];
     int melhor_regiao, melhor_cidade, melhor_cidade_regiao;
 
     // ===================================================================================
@@ -385,14 +405,20 @@ int main(int argc, char *argv[]) {
         
         // Finalizando medicao de tempo e calculando tempo total
         double final_tempo = omp_get_wtime();
-        tempo_total += final_tempo - inicio_tempo;
+        tempos_execucao[rep] = final_tempo - inicio_tempo;
     }
 
     // ===============================================================================
     // Impressao dos resultados e liberacao da memoria alocada. Finalizacao do codigo.
     // ===============================================================================
+    double tempo_total = 0;
+    for (int i = 0; i < NUM_REP; i++) {
+        tempo_total += tempos_execucao[i];
+    }
+
     //printTabelas(R, C, cidade_Dados, regiao_Dados, brasil_Dados, melhor_regiao, melhor_cidade_regiao, melhor_cidade, tempo_total);
-    escreveArquivo(tempo_total);
+    escreveTempoTotal(tempo_total);
+    escreveTempoParcial(tempos_execucao, R);
     
     free(cidade_Dados);
     free(regiao_Dados);
