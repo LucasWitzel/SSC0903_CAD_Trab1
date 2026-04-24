@@ -418,9 +418,9 @@ int main(int argc, char *argv[]) {
     // ==================================================================================
     // Impressao dos resultados no terminal e escrita dos tempos nos respectivos arquivos
     // ==================================================================================
-    escreverTempoTotal(tempo_total);
-    escreverTemposParciais(tempos_execucao, R);
-    //printTabelas(R, C, cidade_Dados, regiao_Dados, brasil_Dados, melhor_regiao, melhor_cidade_regiao, melhor_cidade, tempo_total);
+    //escreverTempoTotal(tempo_total);
+    //escreverTemposParciais(tempos_execucao, R);
+    printTabelas(R, C, cidade_Dados, regiao_Dados, brasil_Dados, melhor_regiao, melhor_cidade_regiao, melhor_cidade, tempo_total);
 
     // Liberacao da memoria alocada e Finalizacao do codigo
     free(cidade_Dados);
