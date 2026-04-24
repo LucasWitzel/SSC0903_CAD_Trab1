@@ -19,10 +19,10 @@ Codigo Paralelo: studentspar.c
 #include <math.h>
 #include <omp.h>
 
-// Numero de repeticoes para o calculo do tempo medio
+// Numero de repeticoes para o calculo do tempo medio de execucao
 #define NUM_REP 33
 
-// Optamos por tratar os arrays contendo os dados dos estudantes como estruturas 
+// Optamos por tratar os tensores contendo os dados dos estudantes como estruturas 
 // unidimensionais para melhor desempenho. Por isso, foram criadas macros que facilitam 
 // a leitura do codigo no momento da indexacao de posicoes.
 
@@ -44,11 +44,12 @@ typedef struct {
 /*
  * Funcao para gerar a tabela com todas as notas de cada estudante
  */
-void gerarTabela(int R, int C, int A, int N, double* estudantes) {
+void gerarNotas(int R, int C, int A, int N, double* estudantes) {
     for (int r = 0; r < R; r++) {
         for (int c = 0; c < C; c++) {
             for (int a = 0; a < A; a++) {
                 for (int n = 0; n < N; n++) {
+                    // Gerando valores reais pseudo-aleatorios entre 0 e 100
                     estudantes[INDEX_4DIM(r, c, a, n)] = (double)(rand() % 1001) / 10.0;
                 }
             }
@@ -125,14 +126,18 @@ Dados calcularDados(const double *valores, double *aux_vetor, int lim) {
     double min_valor = valores[0];
     double max_valor = valores[0];
 
-    // =====================================================
-    // Paralelisacao dos calculos de notas minimas e maximas
-    // =====================================================
+    // ===================================================================================================
+    // Paralelismo dos calculos de notas minimas e maximas
+    //
+    // - simd : vetoriza o loop para processar multiplos dados com uma unica instrucao
+    // - reduction : registra os resultados parciais de cada thread do loop, evitando condicoes de corrida
+    // - private : garante para cada thread uma copia propria da variavel, evitando sobre-escrita
+    // ===================================================================================================
     #pragma omp simd reduction(+:soma, soma_quadrados) private(atual_valor) reduction(min:min_valor) reduction(max:max_valor)
     for (int i = 0; i < lim; i++) {
         atual_valor = valores[i];
 
-        // Ternários sao usados para evitar desvios condicionais complexos dentro do loop SIMD
+        // Ternarios sao usados para evitar desvios condicionais complexos dentro do loop SIMD
         min_valor = (atual_valor < min_valor) ? atual_valor : min_valor;
         max_valor = (atual_valor > max_valor) ? atual_valor : max_valor;
         
@@ -173,34 +178,33 @@ void formatarPT(double valor_original, char *saida, size_t tam_saida) {
 }
 
 /*
- * Funcao para escrever resultados dos tempos totais num arquivo texto
+ * Funcao para escrever os tempos totais de execucao num arquivo texto
  */
-int escreveTempoTotal(double tempo) {
-    FILE *arq = fopen("saidas/tempospar_TASK_SEED.txt", "a");
+int escreverTempoTotal(double tempo) {
+    FILE *arq = fopen("tempos_totais_par.txt", "a");
     if (arq == NULL) {
-        fprintf(stderr, "Erro: nao foi possivel abrir o arquivo de entrada.\n");
+        fprintf(stderr, "Erro: nao foi possivel abrir o arquivo de tempos totais.\n");
         return 1;
     }
-    fprintf(arq, "%.10f\n", tempo / NUM_REP);
+    fprintf(arq, "%.10f\n", tempo);
     fclose(arq);
     return 0;
 }
 
 /*
- * Funcao para escrever resultados dos tempos parciais num arquivo texto
+ * Funcao para escrever os tempos parciais das execucoes num arquivo texto
  */
-int escreveTempoParcial(double *tempos, int tam) {
-    char nome_arquivo[25]; 
-    sprintf(nome_arquivo, "parciais/tempos_parciais%d.txt", tam);
-
-    FILE* arq = fopen(nome_arquivo, "a");
+int escreverTemposParciais(double *tempos, int entrada) {
+    FILE* arq = fopen("tempos_parciais_par.txt", "a");
     if (arq == NULL) {
         fprintf(stderr, "Erro: nao foi possivel abrir o arquivo de tempos parciais.\n");
         return 1;
     }
+    fprintf(arq, "%d\n", entrada);
     for (int i = 0; i < NUM_REP; i++) {
         fprintf(arq, "%.10f\n", tempos[i]);
     }
+    fputc('\n', arq);
     fclose(arq);
     return 0;
 }
@@ -269,7 +273,7 @@ void printTabelas(int R, int C, Dados *cidade_Dados, Dados *regiao_Dados, Dados 
     printf("| %-20s | %-20s | %16s |\n", "Melhor Cidade", id_cidade, media_cidade);
     printf("+----------------------+----------------------+------------------+\n");
 
-    printf("\nTempo medio de execucao: %.6f (s)\n\n", tempo_total / NUM_REP);
+    printf("\nTempo medio de execucao: %.6f (s)\n\n", tempo_total);
 }
 
 /*
@@ -307,11 +311,12 @@ int main(int argc, char *argv[]) {
 
     srand((unsigned int)seed);
 
+    // Definindo o numero de Threads a serem usadas
     omp_set_num_threads(T);
 
-    // =====================================================
-    // Alocacao de memoria dinamica para as tabelas de dados
-    // =====================================================
+    // =================================================================================
+    // Alocacao de memoria dinamica para as tabelas de dados (para nao estourar a stack)
+    // =================================================================================
     Dados brasil_Dados;
 
     Dados *cidade_Dados = malloc((size_t) R * C * sizeof(*cidade_Dados));
@@ -411,7 +416,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Preenchendo a tabela de estudantes com notas pseudo-aleatorias
-    gerarTabela(R, C, A, N, estudantes);
+    gerarNotas(R, C, A, N, estudantes);
 
     double tempos_execucao[NUM_REP];
     int melhor_regiao, melhor_cidade, melhor_cidade_regiao;
@@ -420,19 +425,25 @@ int main(int argc, char *argv[]) {
     // Loop principal para o calculo dos dados estatisticos e medicao do tempo de execucao
     // ===================================================================================
     for (int rep = 0; rep < NUM_REP; rep++) {
+
         // Iniciando medicao de tempo
         double inicio_tempo = omp_get_wtime();
 
-        // ===============================================
-        // Paralelisacao dos calculos das medias por aluno
-        // ===============================================
+        // ===============================================================================================
+        // Paralelismo dos calculos das medias por aluno
+        //
+        // - parallel for : divide a carga de trabalho entre os nucleos do processador
+        // - simd : vetoriza os loops com instrucao unica para os multiplos dados
+        // - colapse : agrega os 3 primeiros loops em uma unica iteracao global, propiciando o paralelismo 
+        // - private : garante para cada thread uma copia propria da variavel, evitando sobre-escrita
+        // ===============================================================================================
         double soma;
         #pragma omp parallel for simd collapse(3) private(soma)
-        for (int r=0; r<R; r++) {
-            for (int c=0; c<C; c++) {
-                for (int a=0; a<A; a++) {
+        for (int r = 0; r < R; r++) {
+            for (int c = 0; c < C; c++) {
+                for (int a = 0; a <A ; a++) {
                     soma = 0;
-                    for (int n=0; n<N; n++) {
+                    for (int n = 0; n < N; n++) {
                         soma += estudantes[INDEX_4DIM(r, c, a, n)];
                     }
                     media[INDEX_3DIM(r, c, a)] = (double) soma / N;
@@ -440,11 +451,17 @@ int main(int argc, char *argv[]) {
             }
         }
         
-        // ===================================================================
-        // Paralelisacao dos calculos das estatisticas por cidade e por regiao
-        // ===================================================================
+        // ========================================================================================
+        // Paralelismo dos calculos das estatisticas por cidade e por regiao
+        //
+        // - parallel : cria threads uma unica vez para executarem todo o bloco
+        // - for simd : divide as iteracoes entre as threads e aplica vetorizacao
+        // - schedule(dynamic) : distribui as iteracoes sob demanda (balancear dependendo da carga)
+        // - nowait : remove barreira implicita ao fim do loop. Threads ociosas podem prosseguir
+        // ========================================================================================
         #pragma omp parallel
         {
+            // Identificando o numero da thread correspondente
             int id_thread = omp_get_thread_num();
             double *aux_cidade = aux_vetor_cidade_threads[id_thread];
             double *aux_regiao = aux_vetor_regiao_threads[id_thread];
@@ -462,11 +479,15 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ==============double tempo_total = 0.0;==========================================================================
-        // Paralelisacao dos calculos das estatisticas do Brasil e definindo Melhor Regiao e Cidade
-        // 2 Metodos: Section e Task
-        // ========================================================================================
-        /*
+        // ==================================================================================================
+        // Paralelismo dos calculos das estatisticas do Brasil e definindo Melhor Regiao e Cidade
+        // [2 Metodos possiveis: Section e Task]
+        //
+        // - sections : define blocos onde o trabalho eh dividido em partes independentes
+        // - single : garante que apenas uma thread execute o bloco de codigo (evita repeticao de tarefas)
+        // - task : coloca o bloco de codigo numa fila. Ele pode ser executado por qualquer thread disponivel
+        // ==================================================================================================
+
         // (Metodo 1: SECTION)
         #pragma omp parallel
         {
@@ -481,11 +502,11 @@ int main(int argc, char *argv[]) {
                 {
                     melhor_regiao = 0; melhor_cidade = 0; melhor_cidade_regiao = 0;
 
-                    for (int r=0; r<R; r++) {
+                    for (int r = 0; r < R; r++) {
                         if (regiao_Dados[r].media > regiao_Dados[melhor_regiao].media) {
                             melhor_regiao = r;
                         }
-                        for (int c=0; c<C; c++) {
+                        for (int c = 0; c < C; c++) {
                             if (cidade_Dados[INDEX_2DIM(r, c)].media > cidade_Dados[INDEX_2DIM(melhor_cidade_regiao, melhor_cidade)].media) {
                                 melhor_cidade_regiao = r;
                                 melhor_cidade = c;
@@ -495,10 +516,9 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        */
 
-        // (Metodo 2: TASK)
-                
+        /*
+        // (Metodo 2: TASK) 
         #pragma omp parallel
         {
             #pragma omp single
@@ -512,11 +532,11 @@ int main(int argc, char *argv[]) {
                 {
                     melhor_regiao = 0; melhor_cidade = 0; melhor_cidade_regiao = 0;
 
-                    for (int r=0; r<R; r++) {
+                    for (int r = 0; r < R; r++) {
                         if (regiao_Dados[r].media > regiao_Dados[melhor_regiao].media) {
                             melhor_regiao = r;
                         }
-                        for (int c=0; c<C; c++) {
+                        for (int c = 0; c < C; c++) {
                             if (cidade_Dados[INDEX_2DIM(r, c)].media > cidade_Dados[INDEX_2DIM(melhor_cidade_regiao, melhor_cidade)].media) {
                                 melhor_cidade_regiao = r;
                                 melhor_cidade = c;
@@ -526,25 +546,28 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        
+        */
 
-        // Finalizando medicao de tempo e calculando tempo total
+        // Finalizando medicao de tempo e calculando tempo parcial
         double final_tempo = omp_get_wtime();
         tempos_execucao[rep] = final_tempo - inicio_tempo;
     }
 
-    // ===============================================================================
-    // Impressao dos resultados e liberacao da memoria alocada. Finalizacao do codigo.
-    // ===============================================================================
+    // Calculando tempo total de execucao (Desconsiderando as 3 primeiras medicoes para evitar outliers do "warm-up" do cluster)
     double tempo_total = 0;
-    for (int i = 0; i < NUM_REP; i++) {
+    for (int i = 3; i < NUM_REP; i++) {
         tempo_total += tempos_execucao[i];
     }
+    tempo_total /= (NUM_REP - 3.0);
 
+    // ==================================================================================
+    // Impressao dos resultados no terminal e escrita dos tempos nos respectivos arquivos
+    // ==================================================================================
+    escreverTempoTotal(tempo_total);
+    escreverTemposParciais(tempos_execucao, R);
     //printTabelas(R, C, cidade_Dados, regiao_Dados, brasil_Dados, melhor_regiao, melhor_cidade_regiao, melhor_cidade, tempo_total);
-    escreveTempoTotal(tempo_total);
-    escreveTempoParcial(tempos_execucao, R);
 
+    // Liberacao da memoria alocada. Finalizacao do codigo.
     free(cidade_Dados);
     free(regiao_Dados);
     free(estudantes);

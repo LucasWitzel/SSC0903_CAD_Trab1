@@ -15,7 +15,7 @@ OBJ = $(SRC:.c=.o)
 
 TARGETS = $(SRC:.c=)
 
-.PHONY: all run_seq run_par clean
+.PHONY: all runseq runpar clean
 
 # Rules
 all: $(TARGETS)

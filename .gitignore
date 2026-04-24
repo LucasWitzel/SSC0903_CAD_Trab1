@@ -35,7 +35,6 @@
 *.i*86
 *.x86_64
 *.hex
-*.sh
 
 # Debug files
 *.dSYM/
@@ -57,13 +56,9 @@ dkms.conf
 
 # Others
 *.txt
+*.png
 *.py
 teste
 run
 studentspar
 studentsseq
-*.png
-Backup/
-entradas/
-entradas2/
-saidas/
